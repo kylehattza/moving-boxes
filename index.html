@@ -258,10 +258,8 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const SHEET_ID = '1iWaPmEDFXgTLxFLscuONuY6BU7fN090XPArBaPKNqzI';
-const API_KEY  = 'AIzaSyCQ44rTlhVHylNGuB_ylays_V_zj8Pxgf4';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwoiSEGjzKZuG8hYyQjwUVxl6J_e_ElPk-nbZmIhsvfEC_x1x_JNuY1cv6W0pAIPsBoDg/exec';
 const BASE_URL = `https://kylehattza.github.io/moving-boxes`;
-const API_BASE = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}`;
 
 let allBoxes = [];
 let allItems = [];
@@ -283,51 +281,25 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 /* ── DATA ── */
-async function sheetsGet(range) {
-  const url = `${API_BASE}/values/${encodeURIComponent(range)}?key=${API_KEY}`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('Sheets read failed');
-  const d = await r.json();
-  return d.values || [];
-}
-
-async function sheetsAppend(range, values) {
-  const url = `${API_BASE}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&key=${API_KEY}`;
-  const r = await fetch(url, {
+async function scriptPost(payload) {
+  const r = await fetch(SCRIPT_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ values })
+    body: JSON.stringify(payload)
   });
-  if (!r.ok) throw new Error('Sheets write failed');
+  if (!r.ok) throw new Error('Script post failed');
   return r.json();
-}
-
-async function sheetsUpdate(range, values) {
-  const url = `${API_BASE}/values/${encodeURIComponent(range)}?valueInputOption=RAW&key=${API_KEY}`;
-  const r = await fetch(url, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ values })
-  });
-  if (!r.ok) throw new Error('Sheets update failed');
-  return r.json();
-}
-
-async function sheetsClear(range) {
-  const url = `${API_BASE}/values/${encodeURIComponent(range)}:clear?key=${API_KEY}`;
-  await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
 }
 
 async function loadAll() {
   try {
-    const [boxRows, itemRows] = await Promise.all([
-      sheetsGet('Boxes!A2:F'),
-      sheetsGet('Items!A2:F')
-    ]);
-    allBoxes = boxRows.map(r => ({ id: r[0]||'', name: r[1]||'', category: r[2]||'', room: r[3]||'', notes: r[4]||'', created: r[5]||'' }));
-    allItems = itemRows.map(r => ({ id: r[0]||'', box_id: r[1]||'', name: r[2]||'', quantity: r[3]||'', notes: r[4]||'', added: r[5]||'' }));
+    const r = await fetch(SCRIPT_URL);
+    const d = await r.json();
+    const boxRows = d.boxes || [];
+    const itemRows = d.items || [];
+    allBoxes = boxRows.slice(1).map(r => ({ id: r[0]||'', name: r[1]||'', category: r[2]||'', room: r[3]||'', notes: r[4]||'', created: r[5]||'' })).filter(b => b.id);
+    allItems = itemRows.slice(1).map(r => ({ id: r[0]||'', box_id: r[1]||'', name: r[2]||'', quantity: r[3]||'', notes: r[4]||'', added: r[5]||'' })).filter(i => i.id);
   } catch(e) {
-    showToast('Could not load data. Check API key and Sheet sharing.', 'error');
+    showToast('Could not load data. Check your Apps Script deployment.', 'error');
   }
 }
 
@@ -398,7 +370,7 @@ async function createBox() {
   const notes = document.getElementById('new-box-notes').value.trim();
   const created = new Date().toISOString().split('T')[0];
   try {
-    await sheetsAppend('Boxes!A:F', [[id, name, category, room, notes, created]]);
+    await scriptPost({ action: 'append', sheet: 'Boxes', row: [id, name, category, room, notes, created] });
     allBoxes.push({ id, name, category, room, notes, created });
     closeModal('modal-create');
     document.getElementById('new-box-name').value = '';
@@ -486,7 +458,7 @@ async function addItem() {
   const id = genItemId();
   const added = new Date().toISOString().split('T')[0];
   try {
-    await sheetsAppend('Items!A:F', [[id, currentBoxId, name, qty, notes, added]]);
+    await scriptPost({ action: 'append', sheet: 'Items', row: [id, currentBoxId, name, qty, notes, added] });
     const newItem = { id, box_id: currentBoxId, name, quantity: qty, notes, added };
     allItems.push(newItem);
     closeModal('modal-add-item');
@@ -515,10 +487,7 @@ async function deleteItem(itemId) {
 }
 
 async function rebuildItemsSheet() {
-  await sheetsClear('Items!A2:F');
-  if (allItems.length) {
-    await sheetsAppend('Items!A:F', allItems.map(i => [i.id, i.box_id, i.name, i.quantity, i.notes, i.added]));
-  }
+  await scriptPost({ action: 'rebuild', sheet: 'Items', rows: allItems.map(i => [i.id, i.box_id, i.name, i.quantity, i.notes, i.added]) });
 }
 
 function backToDashboard() {

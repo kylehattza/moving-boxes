@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Box Tracker</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -126,6 +128,17 @@
   .scan-box-name { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
   .scan-box-meta { font-size: 13px; color: var(--muted); }
 
+  /* SCANNER */
+  .scan-btn-hero { display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--accent); color: #fff; border: none; border-radius: var(--radius); padding: 16px; width: 100%; font-family: var(--font); font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 20px; transition: opacity 0.15s; }
+  .scan-btn-hero:hover { opacity: 0.88; }
+  .scanner-overlay { position: relative; }
+  .scanner-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 200px; height: 200px; border: 2px solid var(--accent); border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45); pointer-events: none; }
+  .scanner-hint { padding: 14px; text-align: center; font-size: 13px; color: var(--muted); background: var(--surface); }
+  #label-export { background: #fff; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: row; align-items: center; gap: 14px; margin: 16px 0; }
+  #label-export .le-id { font-family: monospace; font-size: 11px; color: #888; }
+  #label-export .le-name { font-size: 16px; font-weight: 700; color: #111; margin-top: 3px; }
+  #label-export .le-meta { font-size: 11px; color: #666; margin-top: 3px; }
+
   @media print {
     body * { visibility: hidden; }
     .qr-box, .qr-box * { visibility: visible; }
@@ -145,6 +158,7 @@
 
 <!-- DASHBOARD VIEW -->
 <div class="view active" id="view-dashboard">
+  <button class="scan-btn-hero" onclick="openScanner()">&#9654; Scan box QR code</button>
   <div class="stats-row">
     <div class="stat-card"><div class="stat-val" id="stat-boxes">—</div><div class="stat-label">Total boxes</div></div>
     <div class="stat-card"><div class="stat-val" id="stat-items">—</div><div class="stat-label">Total items</div></div>
@@ -216,19 +230,30 @@
 <div class="modal-overlay" id="modal-qr">
   <div class="modal">
     <div class="modal-title">Print label</div>
-    <div class="qr-box" id="qr-container">
+    <div id="label-export">
       <div id="qr-code-img"></div>
-      <div class="qr-label-preview">
-        <div class="qr-label-id" id="qr-display-id"></div>
-        <div class="qr-label-name" id="qr-display-name"></div>
-        <div class="qr-label-meta" id="qr-display-meta"></div>
+      <div>
+        <div class="le-id" id="qr-display-id"></div>
+        <div class="le-name" id="qr-display-name"></div>
+        <div class="le-meta" id="qr-display-meta"></div>
       </div>
     </div>
-    <p class="print-hint">Screenshot this and send to your Niimbot app, or use the print button below.</p>
+    <p class="print-hint">Tap "Save as image" to save the label, then import into your Niimbot app.</p>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('modal-qr')">Done</button>
-      <button class="btn btn-primary" onclick="window.print()">Print</button>
+      <button class="btn btn-primary" onclick="saveLabelImage()">Save as image</button>
     </div>
+  </div>
+</div>
+
+<!-- SCANNER MODAL -->
+<div class="modal-overlay" id="modal-scanner">
+  <div class="modal" style="padding:0;overflow:hidden;background:#000;border-color:#000;">
+    <div class="scanner-overlay">
+      <video id="scanner-video" autoplay playsinline></video>
+      <div class="scanner-frame"></div>
+    </div>
+    <div class="scanner-hint">Point camera at a box QR code &nbsp;·&nbsp; <span style="color:var(--accent);cursor:pointer;" onclick="closeScanner()">Cancel</span></div>
   </div>
 </div>
 
@@ -521,6 +546,69 @@ function backToDashboard() {
   history.pushState({}, '', window.location.pathname);
   document.querySelector('.nav-tabs').style.display = 'flex';
   showView('dashboard');
+}
+
+/* ── QR SCANNER ── */
+let scannerStream = null;
+let scannerInterval = null;
+
+async function openScanner() {
+  document.getElementById('modal-scanner').classList.add('open');
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const video = document.getElementById('scanner-video');
+    video.srcObject = scannerStream;
+    await video.play();
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    scannerInterval = setInterval(() => {
+      if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      try {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+        if (code && code.data.includes('moving-boxes?id=')) {
+          const id = new URL(code.data).searchParams.get('id');
+          if (id) { closeScanner(); navigateToBox(id); }
+        }
+      } catch(e) {}
+    }, 250);
+  } catch(e) {
+    closeScanner();
+    showToast('Camera access denied. Please allow camera in settings.', 'error');
+  }
+}
+
+function closeScanner() {
+  if (scannerInterval) { clearInterval(scannerInterval); scannerInterval = null; }
+  if (scannerStream) { scannerStream.getTracks().forEach(t => t.stop()); scannerStream = null; }
+  document.getElementById('modal-scanner').classList.remove('open');
+}
+
+function navigateToBox(boxId) {
+  const box = allBoxes.find(b => b.id === boxId);
+  if (!box) { showToast('Box not found — try refreshing', 'error'); return; }
+  currentBoxId = boxId;
+  showView('scan');
+  document.querySelector('.nav-tabs').style.display = 'none';
+  renderItemsView(box);
+}
+
+/* ── SAVE LABEL AS IMAGE ── */
+async function saveLabelImage() {
+  const el = document.getElementById('label-export');
+  try {
+    const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 3, useCORS: true });
+    const link = document.createElement('a');
+    link.download = `${document.getElementById('qr-display-id').textContent || 'label'}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showToast('Label saved — import into Niimbot app', 'success');
+  } catch(e) {
+    showToast('Could not save image. Try screenshotting instead.', 'error');
+  }
 }
 
 /* ── UTILS ── */

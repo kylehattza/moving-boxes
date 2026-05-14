@@ -44,6 +44,16 @@
   .box-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; background: var(--surface2); color: var(--accent2); border: 1px solid var(--border); }
   .item-count { font-size: 12px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .priority-high { background: #3d1a1a; color: #f06b6b; border-color: #f06b6b44; }
+  .priority-normal { background: var(--surface2); color: var(--muted); border-color: var(--border); }
+  .priority-last { background: #1a2a1a; color: #6bbf6b; border-color: #6bbf6b44; }
+  .filter-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .pill { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; transition: all 0.15s; }
+  .pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .item-search-wrap { position: relative; margin-bottom: 16px; }
+  .item-search-wrap input { padding-left: 36px; }
+  .item-search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 14px; pointer-events: none; }
+  .item-match { font-size: 11px; color: var(--accent); margin-top: 2px; }
 
   /* BUTTONS */
   .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-family: var(--font); font-size: 13px; font-weight: 500; transition: all 0.15s; }
@@ -153,6 +163,7 @@
   <div class="nav-tabs">
     <button class="tab-btn active" onclick="showView('dashboard')">Dashboard</button>
     <button class="tab-btn" onclick="showView('boxes')">Boxes</button>
+    <button class="tab-btn" onclick="showView('search')">Search</button>
   </div>
 </nav>
 
@@ -178,9 +189,26 @@
   </div>
   <div class="search-wrap">
     <span class="search-icon">&#9906;</span>
-    <input type="text" placeholder="Search boxes..." oninput="filterBoxes(this.value)">
+    <input type="text" id="box-search-input" placeholder="Search boxes..." oninput="applyBoxFilters()">
+  </div>
+  <div class="filter-pills" id="room-pills"></div>
+  <div class="filter-pills">
+    <span class="pill active" onclick="setPriorityFilter('all', this)">All</span>
+    <span class="pill" onclick="setPriorityFilter('High', this)">High priority</span>
+    <span class="pill" onclick="setPriorityFilter('Normal', this)">Normal</span>
+    <span class="pill" onclick="setPriorityFilter('Last', this)">Last</span>
   </div>
   <div id="boxes-list"><div class="loading-state"><div class="spinner"></div></div></div>
+</div>
+
+<!-- SEARCH VIEW -->
+<div class="view" id="view-search">
+  <div class="section-title" style="margin-bottom:14px;">Find an item across all boxes</div>
+  <div class="item-search-wrap">
+    <span class="item-search-icon">&#9906;</span>
+    <input type="text" id="item-search-input" placeholder="e.g. coffee mugs, charger..." oninput="searchItems(this.value)">
+  </div>
+  <div id="item-search-results"><div class="empty"><p>Type above to search all items</p></div></div>
 </div>
 
 <!-- SCAN VIEW (shown when ?id= in URL) -->
@@ -214,6 +242,14 @@
     <div class="form-group">
       <label>Destination room (new house)</label>
       <input type="text" id="new-box-room" placeholder="e.g. Main bedroom">
+    </div>
+    <div class="form-group">
+      <label>Priority</label>
+      <select id="new-box-priority">
+        <option value="Normal">Normal</option>
+        <option value="High">High — unpack first</option>
+        <option value="Last">Last — unpack last</option>
+      </select>
     </div>
     <div class="form-group">
       <label>Notes (optional)</label>
@@ -326,7 +362,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   } else {
     const cached = loadCache();
     if (cached) { renderDashboard(); renderBoxes(); }
-    loadAll().then(() => { renderDashboard(); renderBoxes(); });
+    loadAll().then(() => { renderDashboard(); renderBoxes(); renderRoomPills(); });
   }
 });
 
@@ -351,10 +387,10 @@ async function scriptPost(payload) {
 async function loadAll() {
   try {
     const [boxRows, itemRows] = await Promise.all([
-      sheetsRead('Boxes!A2:F'),
+      sheetsRead('Boxes!A2:G'),
       sheetsRead('Items!A2:F')
     ]);
-    allBoxes = boxRows.map(r => ({ id: r[0]||'', name: r[1]||'', category: r[2]||'', room: r[3]||'', notes: r[4]||'', created: r[5]||'' })).filter(b => b.id);
+    allBoxes = boxRows.map(r => ({ id: r[0]||'', name: r[1]||'', category: r[2]||'', room: r[3]||'', notes: r[4]||'', created: r[5]||'', priority: r[6]||'Normal' })).filter(b => b.id);
     allItems = itemRows.map(r => ({ id: r[0]||'', box_id: r[1]||'', name: r[2]||'', quantity: r[3]||'', notes: r[4]||'', added: r[5]||'' })).filter(i => i.id);
     saveCache();
   } catch(e) {
@@ -391,24 +427,56 @@ function renderDashboard() {
 }
 
 /* ── BOXES LIST ── */
-function renderBoxes(filter = '') {
+let activeRoom = 'all';
+let activePriority = 'all';
+
+function renderBoxes() {
   const list = document.getElementById('boxes-list');
-  const filtered = filter ? allBoxes.filter(b => b.name.toLowerCase().includes(filter.toLowerCase()) || b.category.toLowerCase().includes(filter.toLowerCase())) : allBoxes;
+  const text = (document.getElementById('box-search-input')||{}).value || '';
+  let filtered = allBoxes;
+  if (text) filtered = filtered.filter(b => b.name.toLowerCase().includes(text.toLowerCase()) || b.category.toLowerCase().includes(text.toLowerCase()) || (b.room||'').toLowerCase().includes(text.toLowerCase()));
+  if (activeRoom !== 'all') filtered = filtered.filter(b => b.room === activeRoom);
+  if (activePriority !== 'all') filtered = filtered.filter(b => (b.priority||'Normal') === activePriority);
   if (!filtered.length) { list.innerHTML = '<div class="empty"><div class="empty-icon">📦</div><p>No boxes found.</p></div>'; return; }
   list.innerHTML = filtered.map(b => boxCard(b)).join('');
+  renderRoomPills();
 }
 
-function filterBoxes(val) { renderBoxes(val); }
+function renderRoomPills() {
+  const rooms = ['all', ...new Set(allBoxes.map(b => b.room).filter(Boolean))];
+  const el = document.getElementById('room-pills');
+  if (!el) return;
+  el.innerHTML = rooms.map(r => `<span class="pill${activeRoom===r?' active':''}" onclick="setRoomFilter('${r}',this)">${r==='all'?'All rooms':r}</span>`).join('');
+}
+
+function setRoomFilter(room, el) {
+  activeRoom = room;
+  renderBoxes();
+}
+
+function setPriorityFilter(p, el) {
+  activePriority = p;
+  document.querySelectorAll('.filter-pills .pill').forEach(x => { if(x.onclick && x.onclick.toString().includes('setPriorityFilter')) x.classList.remove('active'); });
+  el.classList.add('active');
+  renderBoxes();
+}
+
+function applyBoxFilters() { renderBoxes(); }
 
 function boxCard(b) {
   const itemCount = allItems.filter(i => i.box_id === b.id).length;
+  const pri = b.priority || 'Normal';
+  const priClass = pri === 'High' ? 'priority-high' : pri === 'Last' ? 'priority-last' : 'priority-normal';
   return `<div class="card">
     <div class="card-header">
       <div>
         <div class="box-name">${b.name}</div>
         <div class="box-meta">${b.id} · ${b.room || 'No room set'}</div>
       </div>
-      <span class="badge">${b.category}</span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;">
+        <span class="badge">${b.category}</span>
+        ${pri !== 'Normal' ? `<span class="badge ${priClass}">${pri}</span>` : ''}
+      </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
       <button class="btn btn-secondary btn-sm" onclick="openBoxItems('${b.id}')">View items (${itemCount})</button>
@@ -426,11 +494,12 @@ async function createBox() {
   const id = genBoxId();
   const category = document.getElementById('new-box-category').value;
   const room = document.getElementById('new-box-room').value.trim();
+  const priority = document.getElementById('new-box-priority').value;
   const notes = document.getElementById('new-box-notes').value.trim();
   const created = new Date().toISOString().split('T')[0];
   try {
-    await scriptPost({ action: 'append', sheet: 'Boxes', row: [id, name, category, room, notes, created] });
-    allBoxes.push({ id, name, category, room, notes, created });
+    await scriptPost({ action: 'append', sheet: 'Boxes', row: [id, name, category, room, notes, created, priority] });
+    allBoxes.push({ id, name, category, room, notes, created, priority });
     closeModal('modal-create');
     document.getElementById('new-box-name').value = '';
     document.getElementById('new-box-room').value = '';
@@ -546,6 +615,23 @@ function backToDashboard() {
   history.pushState({}, '', window.location.pathname);
   document.querySelector('.nav-tabs').style.display = 'flex';
   showView('dashboard');
+}
+
+/* ── ITEM SEARCH ── */
+function searchItems(query) {
+  const el = document.getElementById('item-search-results');
+  if (!query || query.length < 2) { el.innerHTML = '<div class="empty"><p>Type above to search all items</p></div>'; return; }
+  const q = query.toLowerCase();
+  const matches = allItems.filter(i => i.name.toLowerCase().includes(q) || (i.notes||'').toLowerCase().includes(q));
+  if (!matches.length) { el.innerHTML = '<div class="empty"><p>No items found</p></div>'; return; }
+  el.innerHTML = matches.map(i => {
+    const box = allBoxes.find(b => b.id === i.box_id);
+    if (!box) return '';
+    return `<div class="card" style="cursor:pointer;" onclick="openBoxItems('${box.id}')">
+      <div class="box-name" style="font-size:14px;">${i.name}${i.quantity ? ' <span style=\"color:var(--muted);font-weight:400;font-size:12px;\">x${i.quantity}</span>' : ''}</div>
+      <div class="item-match">Found in: ${box.name} · ${box.id}${box.room ? ' · ' + box.room : ''}</div>
+    </div>`;
+  }).join('');
 }
 
 /* ── QR SCANNER ── */

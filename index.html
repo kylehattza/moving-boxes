@@ -282,6 +282,37 @@
   </div>
 </div>
 
+<!-- EDIT BOX MODAL -->
+<div class="modal-overlay" id="modal-edit">
+  <div class="modal">
+    <div class="modal-title">Edit box</div>
+    <div class="form-group">
+      <label>Box name</label>
+      <input type="text" id="edit-box-name" placeholder="Box name">
+    </div>
+    <div class="form-group">
+      <label>Priority</label>
+      <select id="edit-box-priority">
+        <option value="Normal">Normal</option>
+        <option value="High">High — unpack first</option>
+        <option value="Last">Last — unpack last</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Destination room</label>
+      <input type="text" id="edit-box-room" placeholder="e.g. Main bedroom">
+    </div>
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="edit-box-notes" placeholder="Fragile, heavy, etc."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-edit')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEditBox()">Save changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- SCANNER MODAL -->
 <div class="modal-overlay" id="modal-scanner">
   <div class="modal" style="padding:0;overflow:hidden;background:#000;border-color:#000;">
@@ -475,12 +506,13 @@ function boxCard(b) {
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;">
         <span class="badge">${b.category}</span>
-        ${pri !== 'Normal' ? `<span class="badge ${priClass}">${pri}</span>` : ''}
+        <span class="badge ${priClass}">${pri}</span>
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
       <button class="btn btn-secondary btn-sm" onclick="openBoxItems('${b.id}')">View items (${itemCount})</button>
       <button class="btn btn-secondary btn-sm" onclick="showQR('${b.id}')">QR label</button>
+      <button class="btn btn-secondary btn-sm" onclick="openEditBox('${b.id}')">Edit</button>
     </div>
   </div>`;
 }
@@ -615,6 +647,48 @@ function backToDashboard() {
   history.pushState({}, '', window.location.pathname);
   document.querySelector('.nav-tabs').style.display = 'flex';
   showView('dashboard');
+}
+
+/* ── EDIT BOX ── */
+let editingBoxId = null;
+
+function openEditBox(boxId) {
+  const box = allBoxes.find(b => b.id === boxId);
+  if (!box) return;
+  editingBoxId = boxId;
+  document.getElementById('edit-box-name').value = box.name;
+  document.getElementById('edit-box-priority').value = box.priority || 'Normal';
+  document.getElementById('edit-box-room').value = box.room || '';
+  document.getElementById('edit-box-notes').value = box.notes || '';
+  document.getElementById('modal-edit').classList.add('open');
+}
+
+async function saveEditBox() {
+  const box = allBoxes.find(b => b.id === editingBoxId);
+  if (!box) return;
+  const name = document.getElementById('edit-box-name').value.trim();
+  if (!name) { showToast('Box name cannot be empty', 'error'); return; }
+  const priority = document.getElementById('edit-box-priority').value;
+  const room = document.getElementById('edit-box-room').value.trim();
+  const notes = document.getElementById('edit-box-notes').value.trim();
+  box.name = name;
+  box.priority = priority;
+  box.room = room;
+  box.notes = notes;
+  try {
+    await rebuildBoxesSheet();
+    saveCache();
+    closeModal('modal-edit');
+    renderDashboard();
+    renderBoxes();
+    showToast('Box updated!', 'success');
+  } catch(e) {
+    showToast('Failed to save changes.', 'error');
+  }
+}
+
+async function rebuildBoxesSheet() {
+  await scriptPost({ action: 'rebuild', sheet: 'Boxes', rows: allBoxes.map(b => [b.id, b.name, b.category, b.room, b.notes, b.created, b.priority||'Normal']) });
 }
 
 /* ── ITEM SEARCH ── */

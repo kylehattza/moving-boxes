@@ -259,21 +259,24 @@
 
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwoiSEGjzKZuG8hYyQjwUVxl6J_e_ElPk-nbZmIhsvfEC_x1x_JNuY1cv6W0pAIPsBoDg/exec';
-const BASE_URL = `https://kylehattza.github.io/moving-boxes`;
+const SHEET_ID  = '1iWaPmEDFXgTLxFLscuONuY6BU7fN090XPArBaPKNqzI';
+const API_KEY   = 'AIzaSyCQ44rTlhVHylNGuB_ylays_V_zj8Pxgf4';
+const SHEETS_BASE = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values`;
+const BASE_URL  = `https://kylehattza.github.io/moving-boxes`;
 
 let allBoxes = [];
 let allItems = [];
 let currentBoxId = null;
 const CACHE_KEY = 'boxtracker_cache';
-const CACHE_TTL = 60000;
+const CACHE_TTL = 300000;
 
 function saveCache() {
-  sessionStorage.setItem(CACHE_KEY, JSON.stringify({ boxes: allBoxes, items: allItems, ts: Date.now() }));
+  localStorage.setItem(CACHE_KEY, JSON.stringify({ boxes: allBoxes, items: allItems, ts: Date.now() }));
 }
 
 function loadCache() {
   try {
-    const c = JSON.parse(sessionStorage.getItem(CACHE_KEY));
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY));
     if (c && (Date.now() - c.ts) < CACHE_TTL) { allBoxes = c.boxes; allItems = c.items; return true; }
   } catch(e) {}
   return false;
@@ -286,17 +289,31 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (scanId) {
     showView('scan');
     document.querySelector('.nav-tabs').style.display = 'none';
-    await loadScanView(scanId);
+    const cached = loadCache();
+    if (cached) {
+      const box = allBoxes.find(b => b.id === scanId);
+      if (box) { currentBoxId = scanId; renderItemsView(box); }
+    }
+    await loadAll();
+    const box = allBoxes.find(b => b.id === scanId);
+    if (box) { currentBoxId = scanId; renderItemsView(box); }
+    else document.getElementById('scan-content').innerHTML = '<div class="empty"><p>Box not found.</p></div>';
   } else {
     const cached = loadCache();
     if (cached) { renderDashboard(); renderBoxes(); }
-    await loadAll();
-    renderDashboard();
-    renderBoxes();
+    loadAll().then(() => { renderDashboard(); renderBoxes(); });
   }
 });
 
 /* ── DATA ── */
+async function sheetsRead(range) {
+  const url = `${SHEETS_BASE}/${encodeURIComponent(range)}?key=${API_KEY}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('Read failed');
+  const d = await r.json();
+  return d.values || [];
+}
+
 async function scriptPost(payload) {
   const r = await fetch(SCRIPT_URL, {
     method: 'POST',
@@ -308,15 +325,15 @@ async function scriptPost(payload) {
 
 async function loadAll() {
   try {
-    const r = await fetch(SCRIPT_URL);
-    const d = await r.json();
-    const boxRows = d.boxes || [];
-    const itemRows = d.items || [];
-    allBoxes = boxRows.slice(1).map(r => ({ id: r[0]||'', name: r[1]||'', category: r[2]||'', room: r[3]||'', notes: r[4]||'', created: r[5]||'' })).filter(b => b.id);
-    allItems = itemRows.slice(1).map(r => ({ id: r[0]||"", box_id: r[1]||"", name: r[2]||"", quantity: r[3]||"", notes: r[4]||"", added: r[5]||"" })).filter(i => i.id);
+    const [boxRows, itemRows] = await Promise.all([
+      sheetsRead('Boxes!A2:F'),
+      sheetsRead('Items!A2:F')
+    ]);
+    allBoxes = boxRows.map(r => ({ id: r[0]||'', name: r[1]||'', category: r[2]||'', room: r[3]||'', notes: r[4]||'', created: r[5]||'' })).filter(b => b.id);
+    allItems = itemRows.map(r => ({ id: r[0]||'', box_id: r[1]||'', name: r[2]||'', quantity: r[3]||'', notes: r[4]||'', added: r[5]||'' })).filter(i => i.id);
     saveCache();
   } catch(e) {
-    showToast('Could not load data. Check your Apps Script deployment.', 'error');
+    showToast('Could not load data from Google Sheets.', 'error');
   }
 }
 
@@ -425,13 +442,6 @@ function openBoxItems(boxId) {
   history.pushState({}, '', `?id=${boxId}`);
 }
 
-async function loadScanView(boxId) {
-  await loadAll();
-  const box = allBoxes.find(b => b.id === boxId);
-  if (!box) { document.getElementById('scan-content').innerHTML = '<div class="empty"><p>Box not found. Check the QR code.</p></div>'; return; }
-  currentBoxId = boxId;
-  renderItemsView(box);
-}
 
 function renderItemsView(box) {
   const items = allItems.filter(i => i.box_id === box.id);

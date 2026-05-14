@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Box Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3347;
+    --accent: #4f8ef7;
+    --accent2: #38d9a9;
+    --warn: #f7834f;
+    --text: #e8eaf0;
+    --muted: #7a7f99;
+    --radius: 12px;
+    --font: 'DM Sans', system-ui, sans-serif;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; font-size: 15px; }
+
+  /* NAV */
+  nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 16px; display: flex; align-items: center; justify-content: space-between; height: 56px; position: sticky; top: 0; z-index: 100; }
+  .nav-logo { font-weight: 600; font-size: 16px; letter-spacing: -0.3px; }
+  .nav-logo span { color: var(--accent); }
+  .nav-tabs { display: flex; gap: 4px; }
+  .tab-btn { background: none; border: none; color: var(--muted); padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; font-family: var(--font); font-weight: 500; transition: all 0.15s; }
+  .tab-btn.active { background: var(--surface2); color: var(--text); }
+
+  /* VIEWS */
+  .view { display: none; padding: 20px 16px; max-width: 600px; margin: 0 auto; }
+  .view.active { display: block; }
+
+  /* CARDS */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .box-name { font-weight: 600; font-size: 16px; }
+  .box-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; background: var(--surface2); color: var(--accent2); border: 1px solid var(--border); }
+  .item-count { font-size: 12px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+
+  /* BUTTONS */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-family: var(--font); font-size: 13px; font-weight: 500; transition: all 0.15s; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { opacity: 0.88; }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: transparent; color: #f06b6b; border: 1px solid #f06b6b33; }
+  .btn-danger:hover { background: #f06b6b18; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-full { width: 100%; justify-content: center; margin-top: 12px; }
+  .btn-icon { background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px; border-radius: 6px; font-size: 16px; transition: color 0.15s; }
+  .btn-icon:hover { color: var(--text); }
+
+  /* FORMS */
+  .form-group { margin-bottom: 14px; }
+  label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  input, select, textarea { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font-family: var(--font); font-size: 14px; transition: border-color 0.15s; outline: none; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  select option { background: var(--surface2); }
+  textarea { resize: vertical; min-height: 70px; }
+
+  /* MODAL */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; align-items: center; justify-content: center; padding: 16px; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; }
+  .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end; }
+
+  /* QR MODAL */
+  .qr-box { background: #fff; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 16px 0; }
+  .qr-label-preview { text-align: center; }
+  .qr-label-id { font-family: 'DM Mono', monospace; font-size: 13px; color: #333; font-weight: 500; }
+  .qr-label-name { font-size: 15px; font-weight: 600; color: #111; margin-top: 4px; }
+  .qr-label-meta { font-size: 11px; color: #666; margin-top: 2px; }
+  .print-hint { font-size: 12px; color: var(--muted); text-align: center; }
+
+  /* ITEMS VIEW */
+  .items-header { margin-bottom: 16px; }
+  .items-header h2 { font-size: 20px; font-weight: 600; }
+  .items-header .meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .item-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .item-row:last-child { border-bottom: none; }
+  .item-info { flex: 1; }
+  .item-name { font-size: 14px; font-weight: 500; }
+  .item-detail { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .item-actions { display: flex; gap: 4px; }
+
+  /* DASHBOARD */
+  .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .stat-val { font-size: 28px; font-weight: 600; color: var(--accent); font-family: 'DM Mono', monospace; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* SECTION HEADERS */
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+
+  /* SEARCH */
+  .search-wrap { position: relative; margin-bottom: 16px; }
+  .search-wrap input { padding-left: 36px; }
+  .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 14px; pointer-events: none; }
+
+  /* EMPTY STATE */
+  .empty { text-align: center; padding: 48px 16px; color: var(--muted); }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; }
+  .empty p { font-size: 14px; }
+
+  /* LOADING / TOAST */
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 20px; font-size: 13px; z-index: 300; opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap; }
+  .toast.show { opacity: 1; }
+  .toast.success { border-color: var(--accent2); color: var(--accent2); }
+  .toast.error { border-color: #f06b6b; color: #f06b6b; }
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-state { text-align: center; padding: 40px; color: var(--muted); }
+
+  /* SCAN VIEW */
+  .scan-hero { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+  .scan-box-id { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .scan-box-name { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .scan-box-meta { font-size: 13px; color: var(--muted); }
+
+  @media print {
+    body * { visibility: hidden; }
+    .qr-box, .qr-box * { visibility: visible; }
+    .qr-box { position: fixed; top: 0; left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">Box<span>Track</span></div>
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="showView('dashboard')">Dashboard</button>
+    <button class="tab-btn" onclick="showView('boxes')">Boxes</button>
+  </div>
+</nav>
+
+<!-- DASHBOARD VIEW -->
+<div class="view active" id="view-dashboard">
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-val" id="stat-boxes">—</div><div class="stat-label">Total boxes</div></div>
+    <div class="stat-card"><div class="stat-val" id="stat-items">—</div><div class="stat-label">Total items</div></div>
+  </div>
+  <div class="section-header">
+    <span class="section-title">Recent boxes</span>
+    <button class="btn btn-primary btn-sm" onclick="openCreateBox()">+ New box</button>
+  </div>
+  <div id="dashboard-list"><div class="loading-state"><div class="spinner"></div></div></div>
+</div>
+
+<!-- BOXES VIEW -->
+<div class="view" id="view-boxes">
+  <div class="section-header">
+    <span class="section-title">All boxes</span>
+    <button class="btn btn-primary btn-sm" onclick="openCreateBox()">+ New box</button>
+  </div>
+  <div class="search-wrap">
+    <span class="search-icon">&#9906;</span>
+    <input type="text" placeholder="Search boxes..." oninput="filterBoxes(this.value)">
+  </div>
+  <div id="boxes-list"><div class="loading-state"><div class="spinner"></div></div></div>
+</div>
+
+<!-- SCAN VIEW (shown when ?id= in URL) -->
+<div class="view" id="view-scan">
+  <div id="scan-content"><div class="loading-state"><div class="spinner"></div></div></div>
+</div>
+
+<!-- CREATE BOX MODAL -->
+<div class="modal-overlay" id="modal-create">
+  <div class="modal">
+    <div class="modal-title">New box</div>
+    <div class="form-group">
+      <label>Box name</label>
+      <input type="text" id="new-box-name" placeholder="e.g. Kitchen — crockery">
+    </div>
+    <div class="form-group">
+      <label>Category</label>
+      <select id="new-box-category">
+        <option value="Kitchen">Kitchen</option>
+        <option value="Bedroom">Bedroom</option>
+        <option value="Lounge">Lounge</option>
+        <option value="Bathroom">Bathroom</option>
+        <option value="Study">Study</option>
+        <option value="Garage">Garage</option>
+        <option value="Garden">Garden</option>
+        <option value="Kids">Kids</option>
+        <option value="Linen">Linen</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Destination room (new house)</label>
+      <input type="text" id="new-box-room" placeholder="e.g. Main bedroom">
+    </div>
+    <div class="form-group">
+      <label>Notes (optional)</label>
+      <textarea id="new-box-notes" placeholder="Fragile, heavy, etc."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-create')">Cancel</button>
+      <button class="btn btn-primary" onclick="createBox()">Create &amp; get QR</button>
+    </div>
+  </div>
+</div>
+
+<!-- QR CODE MODAL -->
+<div class="modal-overlay" id="modal-qr">
+  <div class="modal">
+    <div class="modal-title">Print label</div>
+    <div class="qr-box" id="qr-container">
+      <div id="qr-code-img"></div>
+      <div class="qr-label-preview">
+        <div class="qr-label-id" id="qr-display-id"></div>
+        <div class="qr-label-name" id="qr-display-name"></div>
+        <div class="qr-label-meta" id="qr-display-meta"></div>
+      </div>
+    </div>
+    <p class="print-hint">Screenshot this and send to your Niimbot app, or use the print button below.</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-qr')">Done</button>
+      <button class="btn btn-primary" onclick="window.print()">Print</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD ITEM MODAL -->
+<div class="modal-overlay" id="modal-add-item">
+  <div class="modal">
+    <div class="modal-title">Add item</div>
+    <div class="form-group">
+      <label>Item name</label>
+      <input type="text" id="new-item-name" placeholder="e.g. Coffee mugs">
+    </div>
+    <div class="form-group">
+      <label>Quantity (optional)</label>
+      <input type="text" id="new-item-qty" placeholder="e.g. 6">
+    </div>
+    <div class="form-group">
+      <label>Notes (optional)</label>
+      <input type="text" id="new-item-notes" placeholder="e.g. Wrapped in bubble wrap">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-add-item')">Cancel</button>
+      <button class="btn btn-primary" onclick="addItem()">Add item</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SHEET_ID = '1-zh7v0G6gIqLX5D08cW35qdtJUt9oKmzo2CerMPWowI';
+const API_KEY  = 'AIzaSyDUqlNbDpNChgGQcuF4vBbXqt7eM04Ve_0';
+const BASE_URL = `https://kylehattza.github.io/moving-boxes`;
+const API_BASE = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}`;
+
+let allBoxes = [];
+let allItems = [];
+let currentBoxId = null;
+
+/* ── INIT ── */
+window.addEventListener('DOMContentLoaded', async () => {
+  const params = new URLSearchParams(window.location.search);
+  const scanId = params.get('id');
+  if (scanId) {
+    showView('scan');
+    document.querySelector('.nav-tabs').style.display = 'none';
+    await loadScanView(scanId);
+  } else {
+    await loadAll();
+    renderDashboard();
+    renderBoxes();
+  }
+});
+
+/* ── DATA ── */
+async function sheetsGet(range) {
+  const url = `${API_BASE}/values/${encodeURIComponent(range)}?key=${API_KEY}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('Sheets read failed');
+  const d = await r.json();
+  return d.values || [];
+}
+
+async function sheetsAppend(range, values) {
+  const url = `${API_BASE}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&key=${API_KEY}`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values })
+  });
+  if (!r.ok) throw new Error('Sheets write failed');
+  return r.json();
+}
+
+async function sheetsUpdate(range, values) {
+  const url = `${API_BASE}/values/${encodeURIComponent(range)}?valueInputOption=RAW&key=${API_KEY}`;
+  const r = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values })
+  });
+  if (!r.ok) throw new Error('Sheets update failed');
+  return r.json();
+}
+
+async function sheetsClear(range) {
+  const url = `${API_BASE}/values/${encodeURIComponent(range)}:clear?key=${API_KEY}`;
+  await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+}
+
+async function loadAll() {
+  try {
+    const [boxRows, itemRows] = await Promise.all([
+      sheetsGet('Boxes!A2:F'),
+      sheetsGet('Items!A2:F')
+    ]);
+    allBoxes = boxRows.map(r => ({ id: r[0]||'', name: r[1]||'', category: r[2]||'', room: r[3]||'', notes: r[4]||'', created: r[5]||'' }));
+    allItems = itemRows.map(r => ({ id: r[0]||'', box_id: r[1]||'', name: r[2]||'', quantity: r[3]||'', notes: r[4]||'', added: r[5]||'' }));
+  } catch(e) {
+    showToast('Could not load data. Check API key and Sheet sharing.', 'error');
+  }
+}
+
+/* ── ID GENERATION ── */
+function genBoxId() {
+  const num = String(allBoxes.length + 1).padStart(3, '0');
+  return `BOX-${num}`;
+}
+function genItemId() {
+  return `ITM-${Date.now()}`;
+}
+
+/* ── VIEWS ── */
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`view-${name}`).classList.add('active');
+  const btn = document.querySelector(`[onclick="showView('${name}')"]`);
+  if (btn) btn.classList.add('active');
+}
+
+/* ── DASHBOARD ── */
+function renderDashboard() {
+  document.getElementById('stat-boxes').textContent = allBoxes.length;
+  document.getElementById('stat-items').textContent = allItems.length;
+  const list = document.getElementById('dashboard-list');
+  const recent = [...allBoxes].reverse().slice(0, 5);
+  if (!recent.length) { list.innerHTML = '<div class="empty"><div class="empty-icon">📦</div><p>No boxes yet. Create your first one.</p></div>'; return; }
+  list.innerHTML = recent.map(b => boxCard(b)).join('');
+}
+
+/* ── BOXES LIST ── */
+function renderBoxes(filter = '') {
+  const list = document.getElementById('boxes-list');
+  const filtered = filter ? allBoxes.filter(b => b.name.toLowerCase().includes(filter.toLowerCase()) || b.category.toLowerCase().includes(filter.toLowerCase())) : allBoxes;
+  if (!filtered.length) { list.innerHTML = '<div class="empty"><div class="empty-icon">📦</div><p>No boxes found.</p></div>'; return; }
+  list.innerHTML = filtered.map(b => boxCard(b)).join('');
+}
+
+function filterBoxes(val) { renderBoxes(val); }
+
+function boxCard(b) {
+  const itemCount = allItems.filter(i => i.box_id === b.id).length;
+  return `<div class="card">
+    <div class="card-header">
+      <div>
+        <div class="box-name">${b.name}</div>
+        <div class="box-meta">${b.id} · ${b.room || 'No room set'}</div>
+      </div>
+      <span class="badge">${b.category}</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm" onclick="openBoxItems('${b.id}')">View items (${itemCount})</button>
+      <button class="btn btn-secondary btn-sm" onclick="showQR('${b.id}')">QR label</button>
+    </div>
+  </div>`;
+}
+
+/* ── CREATE BOX ── */
+function openCreateBox() { document.getElementById('modal-create').classList.add('open'); }
+
+async function createBox() {
+  const name = document.getElementById('new-box-name').value.trim();
+  if (!name) { showToast('Please enter a box name', 'error'); return; }
+  const id = genBoxId();
+  const category = document.getElementById('new-box-category').value;
+  const room = document.getElementById('new-box-room').value.trim();
+  const notes = document.getElementById('new-box-notes').value.trim();
+  const created = new Date().toISOString().split('T')[0];
+  try {
+    await sheetsAppend('Boxes!A:F', [[id, name, category, room, notes, created]]);
+    allBoxes.push({ id, name, category, room, notes, created });
+    closeModal('modal-create');
+    document.getElementById('new-box-name').value = '';
+    document.getElementById('new-box-room').value = '';
+    document.getElementById('new-box-notes').value = '';
+    renderDashboard(); renderBoxes();
+    showToast('Box created!', 'success');
+    setTimeout(() => showQR(id), 400);
+  } catch(e) {
+    showToast('Failed to save. Check your Sheet is shared as Editor.', 'error');
+  }
+}
+
+/* ── QR CODE ── */
+function showQR(boxId) {
+  const box = allBoxes.find(b => b.id === boxId);
+  if (!box) return;
+  const url = `${BASE_URL}?id=${box.id}`;
+  document.getElementById('qr-display-id').textContent = box.id;
+  document.getElementById('qr-display-name').textContent = box.name;
+  document.getElementById('qr-display-meta').textContent = box.category + (box.room ? ' → ' + box.room : '');
+  const container = document.getElementById('qr-code-img');
+  container.innerHTML = '';
+  new QRCode(container, { text: url, width: 140, height: 140, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+  document.getElementById('modal-qr').classList.add('open');
+}
+
+/* ── ITEMS ── */
+function openBoxItems(boxId) {
+  currentBoxId = boxId;
+  const box = allBoxes.find(b => b.id === boxId);
+  showView('scan');
+  document.querySelector('.nav-tabs').style.display = 'none';
+  renderItemsView(box);
+  history.pushState({}, '', `?id=${boxId}`);
+}
+
+async function loadScanView(boxId) {
+  await loadAll();
+  const box = allBoxes.find(b => b.id === boxId);
+  if (!box) { document.getElementById('scan-content').innerHTML = '<div class="empty"><p>Box not found. Check the QR code.</p></div>'; return; }
+  currentBoxId = boxId;
+  renderItemsView(box);
+}
+
+function renderItemsView(box) {
+  const items = allItems.filter(i => i.box_id === box.id);
+  const el = document.getElementById('scan-content');
+  el.innerHTML = `
+    <div class="scan-hero">
+      <div class="scan-box-id">${box.id}</div>
+      <div class="scan-box-name">${box.name}</div>
+      <div class="scan-box-meta">${box.category}${box.room ? ' · ' + box.room : ''}${box.notes ? ' · ' + box.notes : ''}</div>
+    </div>
+    <div class="section-header">
+      <span class="section-title">Contents (${items.length})</span>
+      <button class="btn btn-primary btn-sm" onclick="openAddItem()">+ Add item</button>
+    </div>
+    <div class="card" id="items-list">
+      ${items.length ? items.map(i => itemRow(i)).join('') : '<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px;">No items yet — tap Add item</div>'}
+    </div>
+    <button class="btn btn-secondary btn-full" onclick="backToDashboard()">&#8592; Back to dashboard</button>
+  `;
+}
+
+function itemRow(i) {
+  return `<div class="item-row" id="item-${i.id}">
+    <div class="item-info">
+      <div class="item-name">${i.name}</div>
+      ${i.quantity || i.notes ? `<div class="item-detail">${[i.quantity ? 'Qty: '+i.quantity : '', i.notes].filter(Boolean).join(' · ')}</div>` : ''}
+    </div>
+    <div class="item-actions">
+      <button class="btn-icon" onclick="deleteItem('${i.id}')" title="Remove">&#10005;</button>
+    </div>
+  </div>`;
+}
+
+function openAddItem() { document.getElementById('modal-add-item').classList.add('open'); }
+
+async function addItem() {
+  const name = document.getElementById('new-item-name').value.trim();
+  if (!name) { showToast('Please enter an item name', 'error'); return; }
+  const qty = document.getElementById('new-item-qty').value.trim();
+  const notes = document.getElementById('new-item-notes').value.trim();
+  const id = genItemId();
+  const added = new Date().toISOString().split('T')[0];
+  try {
+    await sheetsAppend('Items!A:F', [[id, currentBoxId, name, qty, notes, added]]);
+    const newItem = { id, box_id: currentBoxId, name, quantity: qty, notes, added };
+    allItems.push(newItem);
+    closeModal('modal-add-item');
+    document.getElementById('new-item-name').value = '';
+    document.getElementById('new-item-qty').value = '';
+    document.getElementById('new-item-notes').value = '';
+    const box = allBoxes.find(b => b.id === currentBoxId);
+    renderItemsView(box);
+    showToast('Item added!', 'success');
+  } catch(e) {
+    showToast('Failed to add item.', 'error');
+  }
+}
+
+async function deleteItem(itemId) {
+  if (!confirm('Remove this item?')) return;
+  allItems = allItems.filter(i => i.id !== itemId);
+  try {
+    await rebuildItemsSheet();
+    const box = allBoxes.find(b => b.id === currentBoxId);
+    renderItemsView(box);
+    showToast('Item removed', 'success');
+  } catch(e) {
+    showToast('Failed to remove item.', 'error');
+  }
+}
+
+async function rebuildItemsSheet() {
+  await sheetsClear('Items!A2:F');
+  if (allItems.length) {
+    await sheetsAppend('Items!A:F', allItems.map(i => [i.id, i.box_id, i.name, i.quantity, i.notes, i.added]));
+  }
+}
+
+function backToDashboard() {
+  history.pushState({}, '', window.location.pathname);
+  document.querySelector('.nav-tabs').style.display = 'flex';
+  showView('dashboard');
+}
+
+/* ── UTILS ── */
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast show ${type}`;
+  setTimeout(() => t.className = 'toast', 2800);
+}
+</script>
+</body>
+</html>

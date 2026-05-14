@@ -264,6 +264,20 @@ const BASE_URL = `https://kylehattza.github.io/moving-boxes`;
 let allBoxes = [];
 let allItems = [];
 let currentBoxId = null;
+const CACHE_KEY = 'boxtracker_cache';
+const CACHE_TTL = 60000;
+
+function saveCache() {
+  sessionStorage.setItem(CACHE_KEY, JSON.stringify({ boxes: allBoxes, items: allItems, ts: Date.now() }));
+}
+
+function loadCache() {
+  try {
+    const c = JSON.parse(sessionStorage.getItem(CACHE_KEY));
+    if (c && (Date.now() - c.ts) < CACHE_TTL) { allBoxes = c.boxes; allItems = c.items; return true; }
+  } catch(e) {}
+  return false;
+}
 
 /* ── INIT ── */
 window.addEventListener('DOMContentLoaded', async () => {
@@ -274,6 +288,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.querySelector('.nav-tabs').style.display = 'none';
     await loadScanView(scanId);
   } else {
+    const cached = loadCache();
+    if (cached) { renderDashboard(); renderBoxes(); }
     await loadAll();
     renderDashboard();
     renderBoxes();
@@ -297,7 +313,8 @@ async function loadAll() {
     const boxRows = d.boxes || [];
     const itemRows = d.items || [];
     allBoxes = boxRows.slice(1).map(r => ({ id: r[0]||'', name: r[1]||'', category: r[2]||'', room: r[3]||'', notes: r[4]||'', created: r[5]||'' })).filter(b => b.id);
-    allItems = itemRows.slice(1).map(r => ({ id: r[0]||'', box_id: r[1]||'', name: r[2]||'', quantity: r[3]||'', notes: r[4]||'', added: r[5]||'' })).filter(i => i.id);
+    allItems = itemRows.slice(1).map(r => ({ id: r[0]||"", box_id: r[1]||"", name: r[2]||"", quantity: r[3]||"", notes: r[4]||"", added: r[5]||"" })).filter(i => i.id);
+    saveCache();
   } catch(e) {
     showToast('Could not load data. Check your Apps Script deployment.', 'error');
   }
